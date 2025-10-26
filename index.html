@@ -1,0 +1,207 @@
+<!--
+Virtual Cloud Phone (single-file) - HTML + CSS + JS
+Save this as `virtual-phone.html` and open in a browser OR paste into Replit/Glitch.
+Features:
+- Phone frame + home screen
+- App icons + launcher
+- Simple "Browser" app using iframe
+- Notes app (save to localStorage)
+- Mini "App Store" to install sample web apps (adds icons)
+- Settings (change wallpaper, lock/unlock)
+- Persistent installed apps via localStorage
+
+This is a learning toy — not a real Android. Customize freely!
+-->
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Virtual Cloud Phone — Spark & Nova</title>
+  <style>
+    :root{
+      --phone-w:360px; --phone-h:720px; --bg:#0b1220; --accent:#6ee7b7;
+      --glass: rgba(255,255,255,0.06);
+    }
+    *{box-sizing:border-box;font-family:Inter, system-ui, Arial;}
+    body{display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:linear-gradient(180deg,#081224,#071026);color:#fff}
+    .phone{width:var(--phone-w);height:var(--phone-h);border-radius:28px;overflow:hidden;background:var(--bg);box-shadow:0 20px 50px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.02);position:relative}
+    /* status bar */
+    .status{height:44px;display:flex;justify-content:space-between;align-items:center;padding:0 12px;background:linear-gradient(180deg,transparent,rgba(0,0,0,0.08));}
+    .clock{font-weight:600}
+    /* home */
+    .home{padding:14px}
+    .wallpaper{position:absolute;inset:44px 0 70px 0;background-size:cover;background-position:center;filter:contrast(1.02) saturate(1.05);}
+    .dock{position:absolute;left:12px;right:12px;bottom:16px;height:64px;background:var(--glass);border-radius:16px;display:flex;align-items:center;justify-content:space-around;padding:8px}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:10px}
+    .icon{width:64px;height:64px;border-radius:14px;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;text-decoration:none}
+    .icon img{width:42px;height:42px;object-fit:contain}
+    .label{font-size:11px;margin-top:6px;opacity:0.95}
+    .app-screen{position:absolute;inset:44px 0 70px 0;background:rgba(5,8,12,0.9);backdrop-filter:blur(4px);display:flex;flex-direction:column}
+    .app-header{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-bottom:1px solid rgba(255,255,255,0.03)}
+    .app-body{flex:1;overflow:auto;padding:12px}
+    button{background:var(--accent);border:none;color:#012;padding:8px 10px;border-radius:10px;font-weight:700}
+    .small{padding:6px 8px;font-size:13px}
+    .store-list{display:grid;gap:8px}
+    .card{background:rgba(255,255,255,0.03);padding:10px;border-radius:10px;display:flex;justify-content:space-between;align-items:center}
+    input,select,textarea{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#fff;width:100%}
+    .note{background:rgba(0,0,0,0.3);padding:8px;border-radius:8px;margin-bottom:8px}
+    .hidden{display:none}
+    footer{position:absolute;bottom:0;left:0;right:0;height:70px}
+    /* simple modal */
+    .modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(0deg,rgba(2,6,12,0.6),rgba(2,6,12,0.6));}
+    .modal .box{background:#071026;padding:16px;border-radius:12px;width:320px}
+    .set-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  </style>
+</head>
+<body>
+  <div class="phone" id="phone">
+    <div class="wallpaper" id="wallpaper" style="background-image:linear-gradient(120deg,#5eead4,#60a5fa)"></div>
+    <div class="status"><div class="clock" id="clock">12:00</div><div class="icons">🔋 100%</div></div>
+
+    <div class="home" id="home">
+      <div class="grid" id="appGrid"></div>
+    </div>
+
+    <div class="dock" id="dock">
+      <!-- dock icons go here -->
+    </div>
+
+    <div class="app-screen hidden" id="appScreen">
+      <div class="app-header"><div id="appTitle">App</div><div><button id="closeApp" class="small">Close</button></div></div>
+      <div class="app-body" id="appBody">App Content</div>
+    </div>
+
+    <footer></footer>
+  </div>
+
+  <!-- Modal: App Store -->
+  <div class="modal hidden" id="modalStore">
+    <div class="box">
+      <h3>Mini App Store</h3>
+      <div class="store-list" id="storeList"></div>
+      <div style="margin-top:10px;text-align:right"><button id="closeStore">Done</button></div>
+    </div>
+  </div>
+
+  <script>
+    // --- Data & Helpers ---
+    const builtInApps = [
+      {id:'browser',name:'Browser',icon:'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="%23FFFFFF"/></svg>'},
+      {id:'notes',name:'Notes',icon:'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3" fill="%23FFFFFF"/></svg>'},
+      {id:'store',name:'Store',icon:'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3z" fill="%23FFFFFF"/></svg>'},
+      {id:'settings',name:'Settings',icon:'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="%23FFFFFF"/></svg>'}
+    ];
+
+    const sampleStore = [
+      {id:'calc',name:'Calc (web)',url:'https://www.google.com/search?q=calculator'},
+      {id:'clockweb',name:'World Clock',url:'https://time.is'},
+      {id:'tictac',name:'TicTacToe',url:'https://playtictactoe.org'}
+    ];
+
+    // storage keys
+    const STORAGE_APPS = 'vphone_installed_apps';
+    const STORAGE_NOTES = 'vphone_notes';
+    const STORAGE_WALL = 'vphone_wallpaper';
+
+    // init
+    const appGrid = document.getElementById('appGrid');
+    const dock = document.getElementById('dock');
+    const appScreen = document.getElementById('appScreen');
+    const appTitle = document.getElementById('appTitle');
+    const appBody = document.getElementById('appBody');
+    const clockEl = document.getElementById('clock');
+    const wallpaper = document.getElementById('wallpaper');
+
+    function nowTime(){const d=new Date();return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+    setInterval(()=>clockEl.textContent = nowTime(), 1000);
+
+    // load wallpaper
+    const savedWall = localStorage.getItem(STORAGE_WALL);
+    if(savedWall) wallpaper.style.backgroundImage = savedWall;
+
+    // installed apps
+    let installed = JSON.parse(localStorage.getItem(STORAGE_APPS) || '[]');
+    if(installed.length===0){installed = builtInApps.map(a=>a.id); saveInstalled();}
+
+    function saveInstalled(){localStorage.setItem(STORAGE_APPS, JSON.stringify(installed));}
+
+    function renderHome(){appGrid.innerHTML='';
+      installed.forEach(id=>{
+        const info = builtInApps.find(a=>a.id===id) || {id:id,name:id,icon:''};
+        const el = document.createElement('a'); el.href='#'; el.className='icon';
+        el.innerHTML = `<img src="${info.icon}" alt="${info.name}"/><div class="label">${info.name}</div>`;
+        el.addEventListener('click',e=>{e.preventDefault();openApp(info)});
+        appGrid.appendChild(el);
+      });
+    }
+
+    function renderStore(){const storeList = document.getElementById('storeList'); storeList.innerHTML='';
+      sampleStore.forEach(s=>{
+        const card = document.createElement('div'); card.className='card';
+        card.innerHTML = `<div><strong>${s.name}</strong><div style="font-size:12px;opacity:0.8">${s.url}</div></div><div><button class='small'>Install</button></div>`;
+        card.querySelector('button').addEventListener('click',()=>{
+          if(!installed.includes(s.id)){
+            installed.push(s.id); saveInstalled();
+            // add to builtInApps as web-app type
+            builtInApps.push({id:s.id,name:s.name,icon:'https://via.placeholder.com/48?text='+encodeURIComponent(s.name[0]), url:s.url});
+            renderHome(); alert(s.name+' installed!');
+          } else alert('Already installed');
+        });
+        storeList.appendChild(card);
+      });
+    }
+
+    function openApp(info){
+      appScreen.classList.remove('hidden');
+      appTitle.textContent = info.name;
+      // built-in app behaviors
+      if(info.id==='browser'){
+        appBody.innerHTML = '<div style="display:flex;gap:8px;margin-bottom:8px"><input id="urlIn" placeholder="Enter URL or search" /><button id="goBtn">Go</button></div><iframe id="ifrm" src="about:blank" style="width:100%;height:80%;border-radius:8px;border:none"></iframe>';
+        document.getElementById('goBtn').addEventListener('click',()=>{
+          const v=document.getElementById('urlIn').value.trim(); const ifr=document.getElementById('ifrm'); if(!v) return; if(!v.startsWith('http')) ifr.src = 'https://www.google.com/search?q='+encodeURIComponent(v); else ifr.src=v;
+        });
+      } else if(info.id==='notes'){
+        const notes = JSON.parse(localStorage.getItem(STORAGE_NOTES)||'[]');
+        appBody.innerHTML = '<div><textarea id="noteText" rows="6" placeholder="Write notes..."></textarea><div style="margin-top:8px;text-align:right"><button id="saveNote">Save note</button></div><div id="notesList" style="margin-top:12px"></div></div>';
+        const notesList = document.getElementById('notesList'); const noteText = document.getElementById('noteText');
+        function refreshNotes(){notesList.innerHTML=''; notes.forEach((n,i)=>{const d=document.createElement('div');d.className='note';d.innerHTML=`${n}<div style="text-align:right"><button data-i="${i}" class="small">Delete</button></div>`;notesList.appendChild(d)});
+          notesList.querySelectorAll('button').forEach(b=>b.addEventListener('click',e=>{notes.splice(+e.target.dataset.i,1); localStorage.setItem(STORAGE_NOTES,JSON.stringify(notes)); refreshNotes()}));}
+        refreshNotes(); document.getElementById('saveNote').addEventListener('click',()=>{const v=noteText.value.trim(); if(!v) return alert('Type something'); notes.push(v); localStorage.setItem(STORAGE_NOTES,JSON.stringify(notes)); noteText.value=''; refreshNotes();});
+      } else if(info.id==='store'){
+        appBody.innerHTML = '<div style="margin-bottom:8px">Install web apps from the mini-store</div><div id="storeArea"></div>';
+        renderStore(); document.getElementById('storeArea').appendChild(document.getElementById('storeList'));
+      } else if(info.id==='settings'){
+        appBody.innerHTML = `<div><h4>Wallpaper</h4><div class="set-grid"><input id="wallInput" placeholder="CSS gradient or image url" value='${savedWall||''}' /><button id="applyWall" class="small">Apply</button><button id="resetWall" class="small">Reset</button></div></div>`;
+        document.getElementById('applyWall').addEventListener('click',()=>{const v=document.getElementById('wallInput').value.trim(); if(!v) return alert('Type gradient or url'); const css = v.startsWith('linear')?v:`url(${v})`; wallpaper.style.backgroundImage = css; localStorage.setItem(STORAGE_WALL, css); alert('Wallpaper set!');});
+        document.getElementById('resetWall').addEventListener('click',()=>{const defaultW='linear-gradient(120deg,#5eead4,#60a5fa)'; wallpaper.style.backgroundImage = defaultW; localStorage.removeItem(STORAGE_WALL); alert('Reset');});
+      } else {
+        // web-apps installed from store
+        if(info.url){ appBody.innerHTML = `<iframe src="${info.url}" style="width:100%;height:100%;border:none;border-radius:8px"></iframe>`; }
+        else appBody.innerHTML = '<div style="padding:20px">This app is a placeholder.</div>';
+      }
+    }
+
+    document.getElementById('closeApp').addEventListener('click',()=>{appScreen.classList.add('hidden'); appBody.innerHTML='';});
+
+    // Store modal controls
+    const modalStore = document.getElementById('modalStore'); document.getElementById('closeStore').addEventListener('click',()=>{modalStore.classList.add('hidden');});
+
+    // right-bottom gesture: long press to open store (for demo)
+    document.getElementById('phone').addEventListener('contextmenu',e=>{e.preventDefault(); modalStore.classList.remove('hidden'); renderStore();});
+
+    // initial render
+    renderHome();
+
+    // add default dock (first 4 apps)
+    function renderDock(){dock.innerHTML=''; const dockApps = installed.slice(0,4); dockApps.forEach(id=>{const info=builtInApps.find(a=>a.id===id)||{id:id,name:id,icon:''}; const a=document.createElement('a'); a.className='icon'; a.href='#'; a.style.width='56px'; a.style.height='56px'; a.innerHTML=`<img src="${info.icon}"/><div class="label" style="font-size:10px">${info.name}</div>`; a.addEventListener('click',e=>{e.preventDefault(); openApp(info)}); dock.appendChild(a)})}
+    renderDock();
+
+    // make app grid draggable-install order (optional simple)
+
+    // quick tips in console
+    console.log('Virtual phone ready. Right-click on phone to open Mini App Store.');
+  </script>
+</body>
+</html>
